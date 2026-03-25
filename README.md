@@ -1,6 +1,11 @@
 # review-cli
 
-A Bun-based CLI for inspecting GitHub PR review threads/comments through `gh`.
+⚡ CLI powerhouse for GitHub PR reviews. Inspect threads, filter by reviewer, export JSON—works perfectly with agents and skills.
+
+[![Bun](https://img.shields.io/badge/Bun-000000?style=flat&logo=bun)](https://bun.sh)
+[![npm version](https://img.shields.io/npm/v/review-cli?style=flat)](https://www.npmjs.com/package/review-cli)
+[![npm downloads](https://img.shields.io/npm/dm/review-cli?style=flat)](https://www.npmjs.com/package/review-cli)
+[![code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ## Requirements
 
