@@ -1,0 +1,25 @@
+{
+  "name": "review-cli",
+  "version": "0.0.1",
+  "bin": {
+    "review-cli": "index.ts"
+  },
+  "files": [
+    "index.ts"
+  ],
+  "type": "module",
+  "module": "index.ts",
+  "scripts": {
+    "lint": "oxlint",
+    "fmt": "oxfmt",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "oxfmt": "^0.42.0",
+    "oxlint": "^1.57.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
