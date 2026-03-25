@@ -1,12 +1,21 @@
 {
   "name": "review-cli",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "bin": {
     "review-cli": "index.ts"
   },
   "files": [
     "index.ts"
   ],
+  "bugs": {
+    "url": "https://github.com/brrock/review-cli"
+  },
+  "repository": {
+    "url": "git+https://github.com/brrock/review-cli",
+    "type": "git"
+  },
+  "homepage": "https://github.com/brrock/review-cli",
+  
   "type": "module",
   "module": "index.ts",
   "scripts": {

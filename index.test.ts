@@ -9,6 +9,12 @@ import {
   type PullRequestResult,
 } from "./index";
 
+function stripAnsi(value: string): string {
+  const escape = String.fromCharCode(27);
+  const ansiPattern = new RegExp(`${escape}\\[[0-9;]*m`, "g");
+  return value.replace(ansiPattern, "");
+}
+
 const pullRequest: PullRequestResult["pullRequest"] = {
   number: 42,
   title: "Tighten review CLI output",
@@ -185,10 +191,44 @@ describe("formatHuman", () => {
       users: ["monalisa"],
     });
 
-    expect(formatHuman(result)).toContain("PR #42: Tighten review CLI output");
-    expect(formatHuman(result)).toContain("Filters: unresolved only; users: monalisa");
-    expect(formatHuman(result)).toContain("[UNRESOLVED] src/index.ts:12");
-    expect(formatHuman(result)).toContain("Please rename this variable.");
+    const output = stripAnsi(formatHuman(result));
+
+    expect(output).toContain("PR #42: Tighten review CLI output");
+    expect(output).toContain("Filters: unresolved only; users: monalisa");
+    expect(output).toContain("[UNRESOLVED] src/index.ts:12");
+    expect(output).toContain("Please rename this variable.");
+  });
+
+  test("renders suggestion blocks cleanly", () => {
+    const suggestionResult = filterResult(
+      pullRequest,
+      [
+        {
+          ...threads[0]!,
+          comments: [
+            {
+              ...threads[0]!.comments[0]!,
+              body: "```suggestion\nconst betterName = true;\n```\n\nPlease apply this.",
+              bodyText: "Suggested change\n      \n  const betterName = true;\n\nPlease apply this.",
+              diffHunk: "@@ -12,1 +12,1 @@\n-const oldName = true;\n+const betterName = true;",
+            },
+          ],
+        },
+      ],
+      {
+        help: false,
+        json: false,
+        includeResolved: false,
+        users: [],
+      },
+    );
+
+    const output = stripAnsi(formatHuman(suggestionResult));
+
+    expect(output).toContain("Suggested change:");
+    expect(output).toContain("- const oldName = true;");
+    expect(output).toContain("+ const betterName = true;");
+    expect(output).toContain("Please apply this.");
   });
 
   test("renders an empty state", () => {
@@ -199,6 +239,6 @@ describe("formatHuman", () => {
       users: ["nobody"],
     });
 
-    expect(formatHuman(result)).toContain("No matching review threads found.");
+    expect(stripAnsi(formatHuman(result))).toContain("No matching review threads found.");
   });
 });

@@ -418,15 +418,16 @@ export function filterResult(
 }
 
 export function formatHuman(result: PullRequestResult): string {
+  const palette = createPalette();
   const header = [
-    `PR #${result.pullRequest.number}: ${result.pullRequest.title}`,
-    `Repository: ${result.pullRequest.repository}`,
-    `URL: ${result.pullRequest.url}`,
-    `State: ${result.pullRequest.state}${result.pullRequest.isDraft ? " (draft)" : ""}`,
-    `Author: ${result.pullRequest.author ?? "unknown"}`,
-    `Branch: ${result.pullRequest.headRefName} -> ${result.pullRequest.baseRefName}`,
-    `Filters: ${result.filters.includeResolved ? "including resolved" : "unresolved only"}; users: ${result.filters.users.length > 0 ? result.filters.users.join(", ") : "all"}`,
-    `Matches: ${result.threadCount} thread(s), ${result.commentCount} comment(s)`,
+    `${palette.bold(`PR #${result.pullRequest.number}: ${result.pullRequest.title}`)}`,
+    `${palette.label("Repository:")} ${result.pullRequest.repository}`,
+    `${palette.label("URL:")} ${palette.link(result.pullRequest.url)}`,
+    `${palette.label("State:")} ${formatState(result.pullRequest.state, result.pullRequest.isDraft, palette)}`,
+    `${palette.label("Author:")} ${palette.author(result.pullRequest.author ?? "unknown")}`,
+    `${palette.label("Branch:")} ${result.pullRequest.headRefName} -> ${result.pullRequest.baseRefName}`,
+    `${palette.label("Filters:")} ${result.filters.includeResolved ? "including resolved" : "unresolved only"}; users: ${result.filters.users.length > 0 ? result.filters.users.join(", ") : "all"}`,
+    `${palette.label("Matches:")} ${result.threadCount} thread(s), ${result.commentCount} comment(s)`,
   ];
 
   if (result.threads.length === 0) {
@@ -434,17 +435,18 @@ export function formatHuman(result: PullRequestResult): string {
   }
 
   const threadBlocks = result.threads.map((thread, index) => {
+    const status = thread.isResolved ? palette.resolved("RESOLVED") : palette.unresolved("UNRESOLVED");
     const lines = [
-      `${index + 1}. [${thread.isResolved ? "RESOLVED" : "UNRESOLVED"}] ${formatThreadLocation(thread)}`,
-      `   Outdated: ${thread.isOutdated ? "yes" : "no"}`,
+      `${palette.index(`${index + 1}.`)} [${status}] ${palette.path(formatThreadLocation(thread))}`,
+      `   ${palette.label("Outdated:")} ${thread.isOutdated ? palette.warning("yes") : "no"}`,
     ];
 
     if (thread.resolvedBy) {
-      lines.push(`   Resolved by: ${thread.resolvedBy}`);
+      lines.push(`   ${palette.label("Resolved by:")} ${palette.author(thread.resolvedBy)}`);
     }
 
     if (thread.url) {
-      lines.push(`   Thread URL: ${thread.url}`);
+      lines.push(`   ${palette.label("Thread URL:")} ${palette.link(thread.url)}`);
     }
 
     for (const comment of thread.comments) {
@@ -454,15 +456,14 @@ export function formatHuman(result: PullRequestResult): string {
       ].filter(Boolean);
 
       lines.push(
-        `   - ${comment.author ?? "unknown"} on ${comment.createdAt}${reviewBits.length > 0 ? ` (${reviewBits.join(", ")})` : ""}`,
+        `   ${palette.bullet("-")} ${palette.author(comment.author ?? "unknown")} ${palette.dim("on")} ${palette.date(comment.createdAt)}${reviewBits.length > 0 ? ` ${palette.dim(`(${reviewBits.join(", ")})`)}` : ""}`,
       );
 
-      const body = formatCommentBody(comment);
-      for (const bodyLine of body.split("\n")) {
+      for (const bodyLine of formatCommentBody(comment, palette)) {
         lines.push(`     ${bodyLine}`);
       }
 
-      lines.push(`     URL: ${comment.url}`);
+      lines.push(`     ${palette.label("URL:")} ${palette.link(comment.url)}`);
     }
 
     return lines.join("\n");
@@ -740,9 +741,205 @@ function formatThreadLocation(thread: NormalizedThread): string {
   return thread.path;
 }
 
-function formatCommentBody(comment: NormalizedComment): string {
-  const text = comment.bodyText.trim() || comment.body.trim();
-  return text || "[empty comment]";
+type Palette = ReturnType<typeof createPalette>;
+
+function formatCommentBody(comment: NormalizedComment, palette: Palette): string[] {
+  const blocks = parseCommentBlocks(comment.body);
+  if (blocks.length === 0) {
+    const text = comment.bodyText.trim() || comment.body.trim();
+    return [text || "[empty comment]"];
+  }
+
+  const rendered: string[] = [];
+  const diffPreview = extractDiffPreview(comment.diffHunk);
+
+  for (const block of blocks) {
+    if (block.kind === "text") {
+      for (const line of renderTextBlock(block.value)) {
+        rendered.push(line);
+      }
+      continue;
+    }
+
+    rendered.push(palette.suggestionLabel("Suggested change:"));
+    for (const line of diffPreview.removed) {
+      rendered.push(`${palette.removedPrefix("-")} ${palette.removedText(line || " ")}`);
+    }
+
+    const suggestionLines = block.value.length > 0 ? block.value : [""];
+    for (const line of suggestionLines) {
+      rendered.push(`${palette.suggestionPrefix("+")} ${palette.suggestionText(line || " ")}`);
+    }
+  }
+
+  return rendered.length > 0 ? rendered : ["[empty comment]"];
+}
+
+function renderTextBlock(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  return trimmed.split("\n").map((line) => line.trimEnd());
+}
+
+function parseCommentBlocks(body: string): Array<
+  | { kind: "text"; value: string }
+  | { kind: "suggestion"; value: string[] }
+> {
+  if (!body.trim()) {
+    return [];
+  }
+
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const blocks: Array<
+    | { kind: "text"; value: string }
+    | { kind: "suggestion"; value: string[] }
+  > = [];
+  let textBuffer: string[] = [];
+  let suggestionBuffer: string[] | null = null;
+
+  const flushText = () => {
+    if (textBuffer.length === 0) {
+      return;
+    }
+
+    const value = textBuffer.join("\n").trim();
+    if (value) {
+      blocks.push({ kind: "text", value });
+    }
+    textBuffer = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```suggestion")) {
+      flushText();
+      suggestionBuffer = [];
+      continue;
+    }
+
+    if (trimmed === "```" && suggestionBuffer) {
+      blocks.push({ kind: "suggestion", value: trimBlankEdges(suggestionBuffer) });
+      suggestionBuffer = null;
+      continue;
+    }
+
+    if (suggestionBuffer) {
+      suggestionBuffer.push(line);
+      continue;
+    }
+
+    textBuffer.push(line);
+  }
+
+  if (suggestionBuffer) {
+    blocks.push({ kind: "suggestion", value: trimBlankEdges(suggestionBuffer) });
+  }
+
+  flushText();
+  return blocks;
+}
+
+function trimBlankEdges(lines: string[]): string[] {
+  let start = 0;
+  let end = lines.length;
+
+  while (start < end && lines[start]?.trim() === "") {
+    start += 1;
+  }
+
+  while (end > start && lines[end - 1]?.trim() === "") {
+    end -= 1;
+  }
+
+  return lines.slice(start, end).map((line) => line.replace(/\t/g, "  "));
+}
+
+function extractDiffPreview(diffHunk: string | null): {
+  removed: string[];
+} {
+  if (!diffHunk?.trim()) {
+    return { removed: [] };
+  }
+
+  const removed: string[] = [];
+
+  for (const line of diffHunk.replace(/\r\n/g, "\n").split("\n")) {
+    if (line.startsWith("@@")) {
+      continue;
+    }
+
+    if (line.startsWith("---") || line.startsWith("+++")) {
+      continue;
+    }
+
+    if (line.startsWith("-")) {
+      removed.push(line.slice(1));
+    }
+  }
+
+  return { removed: trimBlankEdges(removed) };
+}
+
+function formatState(state: string, isDraft: boolean, palette: Palette): string {
+  const value = isDraft ? `${state} (draft)` : state;
+  if (state === "OPEN") {
+    return palette.label(value);
+  }
+  if (state === "MERGED") {
+    return palette.resolved(value);
+  }
+  return palette.warning(value);
+}
+
+function supportsColor(): boolean {
+  if (process.env.NO_COLOR !== undefined) {
+    return false;
+  }
+
+  if (process.env.FORCE_COLOR !== undefined) {
+    return process.env.FORCE_COLOR !== "0";
+  }
+
+  return Boolean(process.stdout?.isTTY);
+}
+
+function createPalette() {
+  const enabled = supportsColor();
+  const color = (code: number) => (value: string) =>
+    enabled ? `\u001b[${code}m${value}\u001b[0m` : value;
+  const bold = (value: string) => (enabled ? `\u001b[1m${value}\u001b[0m` : value);
+  const dim = color(2);
+  const blue = color(34);
+  const cyan = color(36);
+  const green = color(32);
+  const yellow = color(33);
+  const magenta = color(35);
+  const red = color(31);
+  const gray = color(90);
+
+  return {
+    bold,
+    dim,
+    label: cyan,
+    link: blue,
+    author: magenta,
+    path: bold,
+    date: gray,
+    bullet: yellow,
+    index: bold,
+    unresolved: red,
+    resolved: green,
+    warning: yellow,
+    suggestionLabel: yellow,
+    removedPrefix: red,
+    removedText: red,
+    suggestionPrefix: green,
+    suggestionText: green,
+  };
 }
 
 export function execute(options: CliOptions): PullRequestResult {
@@ -755,7 +952,7 @@ export function execute(options: CliOptions): PullRequestResult {
 export function main(argv: string[]): string {
   const options = parseArgs(argv);
   if (options.help) {
-    return usage("bun run index.ts");
+    return usage("bunx review-cli");
   }
 
   const result = execute(options);

@@ -11,6 +11,11 @@ A Bun-based CLI for inspecting GitHub PR review threads/comments through `gh`.
 ## Install
 
 ```bash
+# globally
+bun i -g review-cli
+# install skills
+bunx skills add brrock/review-cli
+# in this project
 bun install
 ```
 
@@ -21,6 +26,11 @@ bunx review-cli [pr-number] [options]
 ```
 
 If `pr-number` is omitted, the CLI asks `gh` for the current PR on your branch.
+
+To add agent skills run 
+```sh
+bunx skills add brrock/review-cli
+```
 
 ### Options
 
