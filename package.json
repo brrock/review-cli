@@ -1,11 +1,11 @@
 {
   "name": "review-cli",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "bin": {
-    "review-cli": "index.ts"
+    "review-cli": "dist/index.js"
   },
   "files": [
-    "index.ts"
+    "dist/index.js"
   ],
   "bugs": {
     "url": "https://github.com/brrock/review-cli"
@@ -17,11 +17,12 @@
   "homepage": "https://github.com/brrock/review-cli",
   
   "type": "module",
-  "module": "index.ts",
+  "module": "dist/index.js",
   "scripts": {
     "lint": "oxlint",
     "fmt": "oxfmt",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "bun build index.ts --outdir dist --minify"
   },
   "devDependencies": {
     "@types/bun": "latest",
