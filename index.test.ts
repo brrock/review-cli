@@ -4,6 +4,7 @@ import {
   filterResult,
   formatHuman,
   parseArgs,
+  shapeOutput,
   type CliOptions,
   type NormalizedThread,
   type PullRequestResult,
@@ -125,14 +126,52 @@ const threads: NormalizedThread[] = [
   },
 ];
 
+const codeRabbitBody = `_⚠️ Potential issue_ | _🟠 Major_
+
+**Replace \\b at regex start in \`findTextComponent\`.**
+
+<details>
+<summary>Suggested fix</summary>
+
+\`\`\`diff
+-  const pattern = /\\bfunction/;
++  const pattern = /(?:^|[,;{}])function/;
+\`\`\`
+</details>
+
+<!-- suggestion_start -->
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+\`\`\`
+Verify each finding against the current code and only fix it if needed.
+\`\`\`
+
+</details>
+
+<!-- This is an auto-generated comment by CodeRabbit -->`;
+
 describe("parseArgs", () => {
   test("parses positional pr, json, include-resolved, and repeated users", () => {
     expect(
-      parseArgs(["123", "--json", "--include-resolved", "--user", "Monalisa", "--user=hubot"]),
+      parseArgs([
+        "123",
+        "--json",
+        "--include-resolved",
+        "--filter",
+        "2",
+        "--just-reviews",
+        "--user",
+        "Monalisa",
+        "--user=hubot",
+      ]),
     ).toEqual({
       help: false,
       json: true,
       includeResolved: true,
+      filter: 2,
+      justReviews: true,
       prNumber: 123,
       users: ["Monalisa", "hubot"],
     });
@@ -145,6 +184,10 @@ describe("parseArgs", () => {
   test("rejects invalid input", () => {
     expect(() => parseArgs(["abc"])).toThrow("PR number must be a positive integer. Received: abc");
     expect(() => parseArgs(["1", "2"])).toThrow("Unexpected extra positional argument: 2");
+    expect(() => parseArgs(["--filter"])).toThrow("Missing value for --filter.");
+    expect(() => parseArgs(["--filter", "0"])).toThrow(
+      "--filter must be a positive integer. Received: 0",
+    );
     expect(() => parseArgs(["--user"])).toThrow("Missing value for --user.");
     expect(() => parseArgs(["--bogus"])).toThrow("Unknown flag: --bogus");
   });
@@ -156,6 +199,7 @@ describe("filterResult", () => {
       help: false,
       json: false,
       includeResolved: false,
+      justReviews: false,
       users: [],
     };
 
@@ -171,6 +215,7 @@ describe("filterResult", () => {
       help: false,
       json: false,
       includeResolved: true,
+      justReviews: false,
       users: ["hubot"],
     };
 
@@ -180,6 +225,21 @@ describe("filterResult", () => {
     expect(result.commentCount).toBe(2);
     expect(result.threads[0]?.comments.map((comment) => comment.author)).toEqual(["hubot"]);
   });
+
+  test("limits the number of matching review threads", () => {
+    const result = filterResult(pullRequest, threads, {
+      help: false,
+      json: false,
+      includeResolved: true,
+      filter: 1,
+      justReviews: false,
+      users: [],
+    });
+
+    expect(result.threadCount).toBe(1);
+    expect(result.commentCount).toBe(2);
+    expect(result.threads.map((thread) => thread.id)).toEqual(["thread-1"]);
+  });
 });
 
 describe("formatHuman", () => {
@@ -188,6 +248,7 @@ describe("formatHuman", () => {
       help: false,
       json: false,
       includeResolved: false,
+      justReviews: false,
       users: ["monalisa"],
     });
 
@@ -215,13 +276,14 @@ describe("formatHuman", () => {
           ],
         },
       ],
-      {
-        help: false,
-        json: false,
-        includeResolved: false,
-        users: [],
-      },
-    );
+        {
+          help: false,
+          json: false,
+          includeResolved: false,
+          justReviews: false,
+          users: [],
+        },
+      );
 
     const output = stripAnsi(formatHuman(suggestionResult));
 
@@ -236,9 +298,88 @@ describe("formatHuman", () => {
       help: false,
       json: false,
       includeResolved: false,
+      justReviews: false,
       users: ["nobody"],
     });
 
     expect(stripAnsi(formatHuman(result))).toContain("No matching review threads found.");
+  });
+
+  test("omits pull request metadata in just-reviews mode", () => {
+    const result = filterResult(pullRequest, threads, {
+      help: false,
+      json: false,
+      includeResolved: false,
+      justReviews: true,
+      users: [],
+    });
+
+    const output = stripAnsi(formatHuman(result));
+
+    expect(output).toContain("Review data");
+    expect(output).not.toContain("PR #42: Tighten review CLI output");
+    expect(output).not.toContain("Repository:");
+  });
+
+  test("formats CodeRabbit comments without raw html boilerplate", () => {
+    const result = filterResult(
+      pullRequest,
+      [
+        {
+          ...threads[0]!,
+          comments: [
+            {
+              ...threads[0]!.comments[0]!,
+              author: "coderabbitai",
+              body: codeRabbitBody,
+              bodyText: "Potential issue",
+            },
+          ],
+        },
+      ],
+      {
+        help: false,
+        json: false,
+        includeResolved: false,
+        justReviews: true,
+        users: [],
+      },
+    );
+
+    const output = stripAnsi(formatHuman(result));
+
+    expect(output).toContain("⚠️ Potential issue | 🟠 Major");
+    expect(output).toContain("Suggested fix:");
+    expect(output).toContain("-  const pattern = /\\bfunction/;");
+    expect(output).toContain("+  const pattern = /(?:^|[,;{}])function/;");
+    expect(output).toContain("🤖 Prompt for AI Agents:");
+    expect(output).toContain("Verify each finding against the current code and only fix it if needed.");
+    expect(output).not.toContain("<details>");
+    expect(output).not.toContain("<!--");
+    expect(output).not.toContain("```");
+  });
+});
+
+describe("shapeOutput", () => {
+  test("drops pull request data in just-reviews mode", () => {
+    const result = filterResult(pullRequest, threads, {
+      help: false,
+      json: true,
+      includeResolved: false,
+      justReviews: true,
+      users: [],
+    });
+
+    expect(shapeOutput(result)).toEqual({
+      filters: {
+        includeResolved: false,
+        justReviews: true,
+        reviewLimit: null,
+        users: [],
+      },
+      threadCount: 1,
+      commentCount: 2,
+      threads: [result.threads[0]!],
+    });
   });
 });

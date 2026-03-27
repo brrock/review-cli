@@ -38,10 +38,14 @@ bunx skills add brrock/review-cli
 
 ### Options
 
+- `--filter <number>` shows only the first matching review threads after other filters are applied.
 - `--include-resolved` includes resolved threads. By default, only unresolved threads are shown.
+- `--just-reviews` omits pull request metadata and prints review data only.
 - `--user <login>` filters to comments authored by that GitHub user. Repeat the flag to match multiple users.
 - `--json` prints structured JSON instead of the default human-readable report.
 - `--help` prints usage information.
+
+For AI agents and scripts, prefer `--json --just-reviews` unless you specifically need PR metadata such as the title, branch names, or PR URL.
 
 ## Examples
 
@@ -63,6 +67,12 @@ Show only comments from specific reviewers:
 bunx review-cli --user monalisa --user hubot
 ```
 
+Show only the first 5 matching review threads without PR metadata:
+
+```bash
+bunx review-cli --filter 5 --just-reviews
+```
+
 Include resolved threads and emit JSON:
 
 ```bash
@@ -71,10 +81,10 @@ bunx review-cli 456 --include-resolved --json
 
 ## Output
 
-Default output is a readable terminal report with PR metadata first, followed by matching threads and comments.
+Default output is a readable terminal report with PR metadata first, followed by matching threads and comments. Use `--just-reviews` when you only want the review data section.
 
-Use `--json` when you want to pipe the result into another tool:
+Use `--json` when you want to pipe the result into another tool. For agent-oriented review triage, `--json --just-reviews` is usually the best default:
 
 ```bash
-bunx review-cli --json
+bunx review-cli --json --just-reviews
 ```

@@ -124,6 +124,8 @@ export type CliOptions = {
   help: boolean;
   json: boolean;
   includeResolved: boolean;
+  filter?: number;
+  justReviews: boolean;
   prNumber?: number;
   users: string[];
 };
@@ -285,6 +287,8 @@ export type PullRequestResult = {
   };
   filters: {
     includeResolved: boolean;
+    justReviews: boolean;
+    reviewLimit: number | null;
     users: string[];
   };
   threadCount: number;
@@ -292,11 +296,14 @@ export type PullRequestResult = {
   threads: NormalizedThread[];
 };
 
+export type ReviewOnlyResult = Omit<PullRequestResult, "pullRequest">;
+
 export function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     help: false,
     json: false,
     includeResolved: false,
+    justReviews: false,
     users: [],
   };
 
@@ -318,6 +325,30 @@ export function parseArgs(argv: string[]): CliOptions {
 
     if (argument === "--include-resolved") {
       options.includeResolved = true;
+      continue;
+    }
+
+    if (argument === "--just-reviews") {
+      options.justReviews = true;
+      continue;
+    }
+
+    if (argument === "--filter") {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --filter.");
+      }
+      options.filter = parseReviewLimit(value);
+      index += 1;
+      continue;
+    }
+
+    if (argument.startsWith("--filter=")) {
+      const value = argument.slice("--filter=".length);
+      if (!value) {
+        throw new Error("Missing value for --filter.");
+      }
+      options.filter = parseReviewLimit(value);
       continue;
     }
 
@@ -365,7 +396,9 @@ export function usage(scriptName = "review-cli"): string {
     "  pr-number               PR number to inspect. Defaults to the current PR.",
     "",
     "Options:",
+    "  --filter <number>       Show only the first <number> matching review threads.",
     "  --include-resolved      Include resolved review threads.",
+    "  --just-reviews          Omit pull request metadata and print review data only.",
     "  --user, -u <login>      Filter to comments authored by this GitHub user.",
     "                          Repeat the flag to match multiple users.",
     "  --json, -j              Emit JSON instead of human-readable output.",
@@ -374,6 +407,7 @@ export function usage(scriptName = "review-cli"): string {
     "Examples:",
     `  ${scriptName}`,
     `  ${scriptName} 123`,
+    `  ${scriptName} --filter 5 --just-reviews`,
     `  ${scriptName} --user monalisa --user hubot`,
     `  ${scriptName} 456 --include-resolved --json`,
   ].join("\n");
@@ -404,21 +438,32 @@ export function filterResult(
       };
     })
     .filter((thread) => thread.comments.length > 0);
+  const limitedThreads =
+    options.filter === undefined ? filteredThreads : filteredThreads.slice(0, options.filter);
 
   return {
     pullRequest,
     filters: {
       includeResolved: options.includeResolved,
+      justReviews: options.justReviews,
+      reviewLimit: options.filter ?? null,
       users: [...options.users],
     },
-    threadCount: filteredThreads.length,
-    commentCount: filteredThreads.reduce((total, thread) => total + thread.comments.length, 0),
-    threads: filteredThreads,
+    threadCount: limitedThreads.length,
+    commentCount: limitedThreads.reduce((total, thread) => total + thread.comments.length, 0),
+    threads: limitedThreads,
   };
 }
 
 export function formatHuman(result: PullRequestResult): string {
   const palette = createPalette();
+  const filterSummary = [
+    result.filters.includeResolved ? "including resolved" : "unresolved only",
+    `users: ${result.filters.users.length > 0 ? result.filters.users.join(", ") : "all"}`,
+    result.filters.reviewLimit === null ? null : `first ${result.filters.reviewLimit} review(s)`,
+  ]
+    .filter(Boolean)
+    .join("; ");
   const header = [
     `${palette.bold(`PR #${result.pullRequest.number}: ${result.pullRequest.title}`)}`,
     `${palette.label("Repository:")} ${result.pullRequest.repository}`,
@@ -426,12 +471,18 @@ export function formatHuman(result: PullRequestResult): string {
     `${palette.label("State:")} ${formatState(result.pullRequest.state, result.pullRequest.isDraft, palette)}`,
     `${palette.label("Author:")} ${palette.author(result.pullRequest.author ?? "unknown")}`,
     `${palette.label("Branch:")} ${result.pullRequest.headRefName} -> ${result.pullRequest.baseRefName}`,
-    `${palette.label("Filters:")} ${result.filters.includeResolved ? "including resolved" : "unresolved only"}; users: ${result.filters.users.length > 0 ? result.filters.users.join(", ") : "all"}`,
+    `${palette.label("Filters:")} ${filterSummary}`,
     `${palette.label("Matches:")} ${result.threadCount} thread(s), ${result.commentCount} comment(s)`,
   ];
+  const reviewHeader = [
+    `${palette.bold("Review data")}`,
+    `${palette.label("Filters:")} ${filterSummary}`,
+    `${palette.label("Matches:")} ${result.threadCount} thread(s), ${result.commentCount} comment(s)`,
+  ];
+  const visibleHeader = result.filters.justReviews ? reviewHeader : header;
 
   if (result.threads.length === 0) {
-    return [...header, "", "No matching review threads found."].join("\n");
+    return [...visibleHeader, "", "No matching review threads found."].join("\n");
   }
 
   const threadBlocks = result.threads.map((thread, index) => {
@@ -469,7 +520,7 @@ export function formatHuman(result: PullRequestResult): string {
     return lines.join("\n");
   });
 
-  return [...header, "", ...threadBlocks].join("\n");
+  return [...visibleHeader, "", ...threadBlocks].join("\n");
 }
 
 function parsePrNumber(value: string): number {
@@ -480,6 +531,19 @@ function parsePrNumber(value: string): number {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number <= 0) {
     throw new Error(`PR number must be a positive integer. Received: ${value}`);
+  }
+
+  return number;
+}
+
+function parseReviewLimit(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`--filter must be a positive integer. Received: ${value}`);
+  }
+
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number <= 0) {
+    throw new Error(`--filter must be a positive integer. Received: ${value}`);
   }
 
   return number;
@@ -755,7 +819,7 @@ function formatCommentBody(comment: NormalizedComment, palette: Palette): string
 
   for (const block of blocks) {
     if (block.kind === "text") {
-      for (const line of renderTextBlock(block.value)) {
+      for (const line of renderTextBlock(block.value, comment, palette)) {
         rendered.push(line);
       }
       continue;
@@ -775,13 +839,17 @@ function formatCommentBody(comment: NormalizedComment, palette: Palette): string
   return rendered.length > 0 ? rendered : ["[empty comment]"];
 }
 
-function renderTextBlock(value: string): string[] {
+function renderTextBlock(value: string, comment: NormalizedComment, palette: Palette): string[] {
   const trimmed = value.trim();
   if (!trimmed) {
     return [];
   }
 
-  return trimmed.split("\n").map((line) => line.trimEnd());
+  const normalized = isCodeRabbitComment(comment)
+    ? normalizeCodeRabbitText(trimmed, palette)
+    : trimmed;
+
+  return normalized.split("\n").map((line) => line.trimEnd());
 }
 
 function parseCommentBlocks(body: string): Array<
@@ -856,6 +924,71 @@ function trimBlankEdges(lines: string[]): string[] {
   }
 
   return lines.slice(start, end).map((line) => line.replace(/\t/g, "  "));
+}
+
+function isCodeRabbitComment(comment: NormalizedComment): boolean {
+  const author = comment.author?.toLowerCase();
+  return author === "coderabbitai" || author === "coderabbitai[bot]" || /CodeRabbit/i.test(comment.body);
+}
+
+function normalizeCodeRabbitText(value: string, palette: Palette): string {
+  const withoutComments = value.replace(/<!--[\s\S]*?-->/g, "");
+  const withoutDetails = withoutComments
+    .replace(/<\/?details>/g, "")
+    .replace(/<summary>\s*([\s\S]*?)\s*<\/summary>/g, (_match, summary: string) => {
+      return `\n${palette.label(`${stripMarkdownMarkers(summary).trim()}:`)}\n`;
+    });
+
+  const lines = withoutDetails.replace(/\r\n/g, "\n").split("\n");
+  const rendered: string[] = [];
+  let inCodeFence = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+
+    if (trimmed.startsWith("```")) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+
+    let line = rawLine.replace(/\t/g, "  ").trimEnd();
+
+    if (!inCodeFence) {
+      if (trimmed.startsWith(">")) {
+        line = line.replace(/^\s*>\s?/, `${palette.warning("!")} `);
+      }
+
+      line = stripMarkdownMarkers(line);
+    }
+
+    rendered.push(line);
+  }
+
+  return collapseBlankLines(rendered).join("\n").trim();
+}
+
+function stripMarkdownMarkers(value: string): string {
+  return value
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/(^|[\s|])_([^_]+)_($|[\s|])/g, "$1$2$3");
+}
+
+function collapseBlankLines(lines: string[]): string[] {
+  const collapsed: string[] = [];
+  let previousWasBlank = false;
+
+  for (const line of lines) {
+    const isBlank = line.trim() === "";
+    if (isBlank && previousWasBlank) {
+      continue;
+    }
+
+    collapsed.push(line);
+    previousWasBlank = isBlank;
+  }
+
+  return trimBlankEdges(collapsed);
 }
 
 function extractDiffPreview(diffHunk: string | null): {
@@ -949,6 +1082,15 @@ export function execute(options: CliOptions): PullRequestResult {
   return fetchPullRequestResult(repository.owner.login, repository.name, prNumber, options);
 }
 
+export function shapeOutput(result: PullRequestResult): PullRequestResult | ReviewOnlyResult {
+  if (!result.filters.justReviews) {
+    return result;
+  }
+
+  const { pullRequest: _pullRequest, ...reviewOnly } = result;
+  return reviewOnly;
+}
+
 export function main(argv: string[]): string {
   const options = parseArgs(argv);
   if (options.help) {
@@ -956,7 +1098,7 @@ export function main(argv: string[]): string {
   }
 
   const result = execute(options);
-  return options.json ? JSON.stringify(result, null, 2) : formatHuman(result);
+  return options.json ? JSON.stringify(shapeOutput(result), null, 2) : formatHuman(result);
 }
 
 if (import.meta.main) {
