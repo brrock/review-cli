@@ -486,7 +486,9 @@ export function formatHuman(result: PullRequestResult): string {
   }
 
   const threadBlocks = result.threads.map((thread, index) => {
-    const status = thread.isResolved ? palette.resolved("RESOLVED") : palette.unresolved("UNRESOLVED");
+    const status = thread.isResolved
+      ? palette.resolved("RESOLVED")
+      : palette.unresolved("UNRESOLVED");
     const lines = [
       `${palette.index(`${index + 1}.`)} [${status}] ${palette.path(formatThreadLocation(thread))}`,
       `   ${palette.label("Outdated:")} ${thread.isOutdated ? palette.warning("yes") : "no"}`,
@@ -845,26 +847,143 @@ function renderTextBlock(value: string, comment: NormalizedComment, palette: Pal
     return [];
   }
 
-  const normalized = isCodeRabbitComment(comment)
-    ? normalizeCodeRabbitText(trimmed, palette)
-    : trimmed;
+  if (!isCodeRabbitComment(comment)) {
+    return trimmed.split("\n").map((line) => line.trimEnd());
+  }
 
-  return normalized.split("\n").map((line) => line.trimEnd());
+  const normalized = normalizeCodeRabbitText(trimmed, palette);
+  return renderCodeRabbitTextBlock(normalized, palette);
 }
 
-function parseCommentBlocks(body: string): Array<
-  | { kind: "text"; value: string }
-  | { kind: "suggestion"; value: string[] }
-> {
+function renderCodeRabbitTextBlock(value: string, palette: Palette): string[] {
+  const lines = value.split("\n");
+  const rendered: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const trimmed = line.trim();
+
+    if (isCodeRabbitSuggestionHeader(trimmed)) {
+      const suggestionBlock = consumeCodeRabbitSuggestionBlock(lines, index + 1);
+      if (suggestionBlock.lines.length > 0) {
+        rendered.push(palette.suggestionLabel(trimmed));
+        for (const suggestionLine of suggestionBlock.lines) {
+          rendered.push(formatInlineSuggestionLine(suggestionLine, palette));
+        }
+        index = suggestionBlock.nextIndex - 1;
+        continue;
+      }
+    }
+
+    rendered.push(line.trimEnd());
+  }
+
+  return collapseBlankLines(rendered);
+}
+
+function consumeCodeRabbitSuggestionBlock(
+  lines: string[],
+  startIndex: number,
+): { lines: string[]; nextIndex: number } {
+  const collected: string[] = [];
+  let index = startIndex;
+
+  while (index < lines.length) {
+    const line = (lines[index] ?? "").trimEnd();
+    const trimmed = line.trim();
+
+    if (trimmed === "") {
+      if (collected.length === 0) {
+        index += 1;
+        continue;
+      }
+
+      const nextNonBlank = findNextNonBlankLine(lines, index + 1);
+      if (nextNonBlank !== null && isCodeRabbitInlineSuggestionLine(nextNonBlank)) {
+        collected.push("");
+        index += 1;
+        continue;
+      }
+
+      break;
+    }
+
+    if (!isCodeRabbitInlineSuggestionLine(line)) {
+      break;
+    }
+
+    collected.push(line);
+    index += 1;
+  }
+
+  return {
+    lines: trimBlankEdges(collected),
+    nextIndex: index,
+  };
+}
+
+function findNextNonBlankLine(lines: string[], startIndex: number): string | null {
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line !== undefined && line.trim() !== "") {
+      return line;
+    }
+  }
+
+  return null;
+}
+
+function isCodeRabbitSuggestionHeader(value: string): boolean {
+  return value === "Suggested fix:" || value === "Suggested change:";
+}
+
+function isCodeRabbitInlineSuggestionLine(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (/^[+-]\s/.test(trimmed)) {
+    return true;
+  }
+
+  if (/^[{}()[\],.;]+$/.test(trimmed)) {
+    return true;
+  }
+
+  if (/^(const|let|var|if|for|while|return|throw|function|await|try|catch)\b/.test(trimmed)) {
+    return true;
+  }
+
+  return /[=()[\]{};.]|=>/.test(trimmed) && /^\s{2,}\S/.test(value);
+}
+
+function formatInlineSuggestionLine(value: string, palette: Palette): string {
+  const line = value.replace(/\t/g, "  ").trimEnd();
+  const leadingWhitespace = line.match(/^\s*/)?.[0] ?? "";
+  const trimmed = line.trim();
+
+  if (/^-\s/.test(trimmed)) {
+    return `${leadingWhitespace}${palette.removedPrefix("-")} ${palette.removedText(trimmed.slice(2) || " ")}`;
+  }
+
+  if (/^\+\s/.test(trimmed)) {
+    return `${leadingWhitespace}${palette.suggestionPrefix("+")} ${palette.suggestionText(trimmed.slice(2) || " ")}`;
+  }
+
+  return line;
+}
+
+function parseCommentBlocks(
+  body: string,
+): Array<{ kind: "text"; value: string } | { kind: "suggestion"; value: string[] }> {
   if (!body.trim()) {
     return [];
   }
 
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const blocks: Array<
-    | { kind: "text"; value: string }
-    | { kind: "suggestion"; value: string[] }
-  > = [];
+  const blocks: Array<{ kind: "text"; value: string } | { kind: "suggestion"; value: string[] }> =
+    [];
   let textBuffer: string[] = [];
   let suggestionBuffer: string[] | null = null;
 
@@ -928,7 +1047,9 @@ function trimBlankEdges(lines: string[]): string[] {
 
 function isCodeRabbitComment(comment: NormalizedComment): boolean {
   const author = comment.author?.toLowerCase();
-  return author === "coderabbitai" || author === "coderabbitai[bot]" || /CodeRabbit/i.test(comment.body);
+  return (
+    author === "coderabbitai" || author === "coderabbitai[bot]" || /CodeRabbit/i.test(comment.body)
+  );
 }
 
 function normalizeCodeRabbitText(value: string, palette: Palette): string {
@@ -942,12 +1063,54 @@ function normalizeCodeRabbitText(value: string, palette: Palette): string {
   const lines = withoutDetails.replace(/\r\n/g, "\n").split("\n");
   const rendered: string[] = [];
   let inCodeFence = false;
+  let skippingScriptBlock = false;
+  let skippingCommittableSuggestion = false;
 
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
 
+    if (!inCodeFence && skippingCommittableSuggestion && isCodeRabbitPromptHeader(trimmed)) {
+      skippingCommittableSuggestion = false;
+    }
+
     if (trimmed.startsWith("```")) {
+      if (skippingScriptBlock || skippingCommittableSuggestion) {
+        inCodeFence = !inCodeFence;
+        continue;
+      }
+
       inCodeFence = !inCodeFence;
+      continue;
+    }
+
+    if (!inCodeFence && isCodeRabbitAnalysisHeader(trimmed)) {
+      continue;
+    }
+
+    if (!inCodeFence && isCodeRabbitScriptHeader(trimmed)) {
+      skippingScriptBlock = true;
+      continue;
+    }
+
+    if (skippingScriptBlock) {
+      if (
+        inCodeFence ||
+        trimmed === "" ||
+        trimmed === "---" ||
+        isCodeRabbitScriptMetadataLine(trimmed)
+      ) {
+        continue;
+      }
+
+      skippingScriptBlock = false;
+    }
+
+    if (!inCodeFence && isCodeRabbitCommittableHeader(trimmed)) {
+      skippingCommittableSuggestion = true;
+      continue;
+    }
+
+    if (skippingCommittableSuggestion || isCodeRabbitBoilerplateLine(trimmed)) {
       continue;
     }
 
@@ -967,11 +1130,36 @@ function normalizeCodeRabbitText(value: string, palette: Palette): string {
   return collapseBlankLines(rendered).join("\n").trim();
 }
 
+function isCodeRabbitAnalysisHeader(value: string): boolean {
+  return value === "🧩 Analysis chain:";
+}
+
+function isCodeRabbitScriptHeader(value: string): boolean {
+  return value === "🏁 Script executed:";
+}
+
+function isCodeRabbitScriptMetadataLine(value: string): boolean {
+  return /^Repository:\s+/u.test(value) || /^Length of output:\s+/u.test(value);
+}
+
+function isCodeRabbitCommittableHeader(value: string): boolean {
+  return value === "📝 Committable suggestion:";
+}
+
+function isCodeRabbitPromptHeader(value: string): boolean {
+  return value === "🤖 Prompt for AI Agents:";
+}
+
+function isCodeRabbitBoilerplateLine(value: string): boolean {
+  return value === "<!-- This is an auto-generated comment by CodeRabbit -->";
+}
+
 function stripMarkdownMarkers(value: string): string {
   return value
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/__(.+?)__/g, "$1")
-    .replace(/(^|[\s|])_([^_]+)_($|[\s|])/g, "$1$2$3");
+    .replace(/(^|[^\w])\*\*(.+?)\*\*(?=[^\w]|$)/g, "$1$2")
+    .replace(/(^|[^\w])__(.+?)__(?=[^\w]|$)/g, "$1$2")
+    .replace(/(^|[\s|])_([^_]+)_($|[\s|])/g, "$1$2$3")
+    .replace(/`([^`]+)`/g, "$1");
 }
 
 function collapseBlankLines(lines: string[]): string[] {

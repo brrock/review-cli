@@ -1,21 +1,20 @@
 {
   "name": "review-cli",
-  "version": "0.0.5",
+  "version": "0.0.6",
+  "homepage": "https://github.com/brrock/review-cli",
+  "bugs": {
+    "url": "https://github.com/brrock/review-cli"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brrock/review-cli"
+  },
   "bin": {
     "review-cli": "dist/index.js"
   },
   "files": [
     "dist/index.js"
   ],
-  "bugs": {
-    "url": "https://github.com/brrock/review-cli"
-  },
-  "repository": {
-    "url": "git+https://github.com/brrock/review-cli",
-    "type": "git"
-  },
-  "homepage": "https://github.com/brrock/review-cli",
-  
   "type": "module",
   "module": "dist/index.js",
   "scripts": {

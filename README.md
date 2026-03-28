@@ -31,7 +31,8 @@ bunx review-cli [pr-number] [options]
 
 If `pr-number` is omitted, the CLI asks `gh` for the current PR on your branch.
 
-To add agent skills run 
+To add agent skills run
+
 ```sh
 bunx skills add brrock/review-cli
 ```

@@ -152,6 +152,80 @@ Verify each finding against the current code and only fix it if needed.
 
 <!-- This is an auto-generated comment by CodeRabbit -->`;
 
+const codeRabbitAnalysisBody = `_⚠️ Potential issue_ | _🟡 Minor_
+
+🧩 Analysis chain:
+
+🏁 Script executed:
+
+\`\`\`bash
+#!/bin/bash
+rg -n 'rebuildBunData' --type=ts -C3
+\`\`\`
+
+Repository: Piebald-AI/tweakcc
+
+Length of output: 1352
+
+---
+
+🏁 Script executed:
+
+\`\`\`bash
+cat -n src/nativeInstallation.ts | sed -n '753,820p'
+\`\`\`
+
+Repository: Piebald-AI/tweakcc
+
+Length of output: 2994
+
+---
+
+Remove unreachable bytecode invalidation code in \`rebuildBunData\`.
+
+The bytecode invalidation logic (lines 800-807) is dead code.
+
+📝 Committable suggestion:
+
+! ‼️ IMPORTANT
+! Carefully review the code before committing.
+Suggested change:
++     const value = 1;
+
+🤖 Prompt for AI Agents:
+
+Verify each finding against the current code and only fix it if needed.
+
+<!-- This is an auto-generated comment by CodeRabbit -->`;
+
+const codeRabbitPlainSuggestedFixBody = String.raw`_⚠️ Potential issue_ | _🟠 Major_
+
+Missing validation that CJS wrapper replacement succeeded.
+
+Suggested fix:
+
+     const replaced = rest.replace(
+  -    /\)\s*$/,
+  +    /\)\s*$/,
+    ')(exports, require, module, __filename, __dirname)\n'
+     );
+
+     if (replaced === rest) {
+       throw new Error(
+         'Failed to add CJS invocation: source does not end with expected wrapper format'
+       );
+     }
+
+     const callable = pragma + replaced;
+
+Also applies to runtime wrapper construction.
+
+🤖 Prompt for AI Agents:
+
+Verify each finding against the current code and only fix it if needed.
+
+<!-- This is an auto-generated comment by CodeRabbit -->`;
+
 describe("parseArgs", () => {
   test("parses positional pr, json, include-resolved, and repeated users", () => {
     expect(
@@ -270,20 +344,21 @@ describe("formatHuman", () => {
             {
               ...threads[0]!.comments[0]!,
               body: "```suggestion\nconst betterName = true;\n```\n\nPlease apply this.",
-              bodyText: "Suggested change\n      \n  const betterName = true;\n\nPlease apply this.",
+              bodyText:
+                "Suggested change\n      \n  const betterName = true;\n\nPlease apply this.",
               diffHunk: "@@ -12,1 +12,1 @@\n-const oldName = true;\n+const betterName = true;",
             },
           ],
         },
       ],
-        {
-          help: false,
-          json: false,
-          includeResolved: false,
-          justReviews: false,
-          users: [],
-        },
-      );
+      {
+        help: false,
+        json: false,
+        includeResolved: false,
+        justReviews: false,
+        users: [],
+      },
+    );
 
     const output = stripAnsi(formatHuman(suggestionResult));
 
@@ -353,10 +428,92 @@ describe("formatHuman", () => {
     expect(output).toContain("-  const pattern = /\\bfunction/;");
     expect(output).toContain("+  const pattern = /(?:^|[,;{}])function/;");
     expect(output).toContain("🤖 Prompt for AI Agents:");
-    expect(output).toContain("Verify each finding against the current code and only fix it if needed.");
+    expect(output).toContain(
+      "Verify each finding against the current code and only fix it if needed.",
+    );
     expect(output).not.toContain("<details>");
     expect(output).not.toContain("<!--");
     expect(output).not.toContain("```");
+  });
+
+  test("strips CodeRabbit analysis-chain noise and duplicate boilerplate", () => {
+    const result = filterResult(
+      pullRequest,
+      [
+        {
+          ...threads[0]!,
+          comments: [
+            {
+              ...threads[0]!.comments[0]!,
+              author: "coderabbitai",
+              body: codeRabbitAnalysisBody,
+              bodyText: "Potential issue",
+            },
+          ],
+        },
+      ],
+      {
+        help: false,
+        json: false,
+        includeResolved: false,
+        justReviews: true,
+        users: [],
+      },
+    );
+
+    const output = stripAnsi(formatHuman(result));
+
+    expect(output).toContain("⚠️ Potential issue | 🟡 Minor");
+    expect(output).toContain("Remove unreachable bytecode invalidation code in rebuildBunData.");
+    expect(output).toContain("The bytecode invalidation logic (lines 800-807) is dead code.");
+    expect(output).toContain("🤖 Prompt for AI Agents:");
+    expect(output).toContain(
+      "Verify each finding against the current code and only fix it if needed.",
+    );
+    expect(output).not.toContain("🧩 Analysis chain:");
+    expect(output).not.toContain("🏁 Script executed:");
+    expect(output).not.toContain("Repository: Piebald-AI/tweakcc");
+    expect(output).not.toContain("Length of output: 1352");
+    expect(output).not.toContain("📝 Committable suggestion:");
+    expect(output).not.toContain("Carefully review the code before committing.");
+  });
+
+  test("formats plain-text CodeRabbit suggested fix blocks like code diffs", () => {
+    const result = filterResult(
+      pullRequest,
+      [
+        {
+          ...threads[0]!,
+          comments: [
+            {
+              ...threads[0]!.comments[0]!,
+              author: "coderabbitai",
+              body: codeRabbitPlainSuggestedFixBody,
+              bodyText: "Potential issue",
+            },
+          ],
+        },
+      ],
+      {
+        help: false,
+        json: false,
+        includeResolved: false,
+        justReviews: true,
+        users: [],
+      },
+    );
+
+    const output = stripAnsi(formatHuman(result));
+
+    expect(output).toContain("Suggested fix:");
+    expect(output).toContain("const replaced = rest.replace(");
+    expect(output).toContain("-    /\\)\\s*$/,");
+    expect(output).toContain("+    /\\)\\s*$/,");
+    expect(output).toContain("__filename");
+    expect(output).toContain("__dirname");
+    expect(output).toContain("const callable = pragma + replaced;");
+    expect(output).toContain("Also applies to runtime wrapper construction.");
+    expect(output).toContain("Prompt for AI Agents:");
   });
 });
 
