@@ -18,7 +18,7 @@
 # globally
 bun i -g review-cli
 # install skills
-bunx skills add brrock/review-cli
+bunx skills add simples-tools/review-cli
 # in this project
 bun install
 ```
@@ -34,7 +34,7 @@ If `pr-number` is omitted, the CLI asks `gh` for the current PR on your branch.
 To add agent skills run
 
 ```sh
-bunx skills add brrock/review-cli
+bunx skills add simples-tools/review-cli
 ```
 
 ### Options
